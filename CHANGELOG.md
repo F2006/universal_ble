@@ -1,3 +1,27 @@
+## 0.18.0
+* Improve docs for isPaired
+
+## 0.17.0
+* Fix Windows crash when calling pair APIs with an unknown deviceId
+* Fix Windows crash when calling startScan again after some time
+* Fix Windows warning `Unable to establish connection on channel` when hot restarting
+* Refactor native Windows code
+* Improve Android permission documentation
+
+## 0.16.0
+* BREAKING CHANGE: `payload` is now `payloadPrefix`
+* BREAKING CHANGE: `mask` is now `payloadMask`
+* Bump bluez to 0.8.3
+* Do not normalize UUIDs on native side
+* Reverse _permissionStatus return values in example app
+* Improve readme
+* Improve ManufacturerDataFilter
+
+## 0.15.0
+* `getSystemDevices(withServices:)` now sets several generic services by default as filter
+* `getConnectionState` on Android will now return `BleConnectionState.disconnected` if device is connected to the system but not to the app
+* Improve callback error handling
+
 ## 0.14.0
 * BREAKING CHANGE: `bleDevice.name` now filters out non-printable characters
 * Add `bleDevice.rawName`

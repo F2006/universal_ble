@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:universal_ble/universal_ble.dart';
 import 'package:universal_ble_example/data/mock_universal_ble.dart';
@@ -69,6 +70,27 @@ class _MyAppState extends State<MyApp> {
     await UniversalBle.startScan(
       scanFilter: scanFilter,
     );
+  }
+
+  Future<void> _getSystemDevices() async {
+    // For macOS and iOS, it is recommended to set a filter to get system devices
+    if (defaultTargetPlatform == TargetPlatform.macOS ||
+        defaultTargetPlatform == TargetPlatform.iOS &&
+            (scanFilter?.withServices ?? []).isEmpty) {
+      showSnackbar(
+          "No services filter was set for getting system connected devices. Using default services...");
+    }
+
+    List<BleDevice> devices = await UniversalBle.getSystemDevices(
+      withServices: scanFilter?.withServices,
+    );
+    if (devices.isEmpty) {
+      showSnackbar("No System Connected Devices Found");
+    }
+    setState(() {
+      _bleDevices.clear();
+      _bleDevices.addAll(devices);
+    });
   }
 
   void _showScanFilterBottomSheet() {
@@ -178,18 +200,8 @@ class _MyAppState extends State<MyApp> {
                   ),
                 if (BleCapabilities.supportsConnectedDevicesApi)
                   PlatformButton(
-                    text: 'Connected Devices',
-                    onPressed: () async {
-                      List<BleDevice> devices =
-                          await UniversalBle.getSystemDevices();
-                      if (devices.isEmpty) {
-                        showSnackbar("No Connected Devices Found");
-                      }
-                      setState(() {
-                        _bleDevices.clear();
-                        _bleDevices.addAll(devices);
-                      });
-                    },
+                    text: 'System Devices',
+                    onPressed: _getSystemDevices,
                   ),
                 PlatformButton(
                   text: 'Queue: ${_queueType.name}',

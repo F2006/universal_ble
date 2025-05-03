@@ -101,13 +101,19 @@ class UniversalBle {
             }
           }
         },
+        onError: (error) {
+          if (!completer.isCompleted) {
+            connectionSubscription?.cancel();
+            completer.completeError(ConnectionException(error));
+          }
+        },
       );
 
       _platform
           .connect(deviceId, connectionTimeout: connectionTimeout)
           .catchError(
         (error) {
-          if (completer.isCompleted == false) {
+          if (!completer.isCompleted) {
             connectionSubscription?.cancel();
             completer.completeError(ConnectionException(error));
           }
@@ -202,7 +208,8 @@ class UniversalBle {
   }
 
   /// Request MTU value.
-  /// `requestMtu` is not supported on `Linux` and `Web.
+  /// It will **attempt** to set the MTU (Maximum Transmission Unit) but it is not guaranteed to succeed due to platform limitations.
+  /// It will always return the current MTU.
   static Future<int> requestMtu(String deviceId, int expectedMtu) async {
     return await _bleCommandQueue.queueCommand(
       () => _platform.requestMtu(deviceId, expectedMtu),
@@ -212,11 +219,10 @@ class UniversalBle {
 
   /// Check if a device is paired.
   ///
-  /// For Apple and Web, you can optionally pass a pairingCommand if you know an encrypted read or write characteristic.
-  /// It will return true/false if it manages to execute the command.
+  /// For `Apple` and `Web`, you have to pass a "pairingCommand" with an encrypted read or write characteristic.
+  /// Returns true/false if it manages to execute the command.
+  /// Returns null when no `pairingCommand` is passed.
   /// Note that it will trigger pairing if the device is not already paired.
-  ///
-  /// Returns null on `Apple` and `Web` when no `bleCommand` is passed.
   static Future<bool?> isPaired(
     String deviceId, {
     BleCommand? pairingCommand,
@@ -292,7 +298,7 @@ class UniversalBle {
 
   /// Get connected devices to the system (connected by any app).
   /// Use [withServices] to filter devices by services.
-  /// On `Apple`, [withServices] is required to get connected devices, else [1800] service will be used as default filter.
+  /// On `Apple`, [withServices] is required to get any connected devices. If not passed, several [18XX] generic services will be set by default.
   /// On `Android`, `Linux` and `Windows`, if [withServices] is used, then internally all services will be discovered for each device first (either by connecting or by using cached services).
   /// Not supported on `Web`.
   static Future<List<BleDevice>> getSystemDevices({
