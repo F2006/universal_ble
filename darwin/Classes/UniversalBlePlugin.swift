@@ -27,7 +27,11 @@ private var discoveredPeripherals = [String: CBPeripheral]()
 private class BleCentralDarwin: NSObject, UniversalBlePlatformChannel, CBCentralManagerDelegate, CBPeripheralDelegate {
   var callbackChannel: UniversalBleCallbackChannel
   private var universalBleFilterUtil = UniversalBleFilterUtil()
-  private lazy var manager: CBCentralManager = .init(delegate: self, queue: nil)
+  private lazy var manager: CBCentralManager = .init(
+    delegate: self,
+    queue: nil,
+    options: [CBCentralManagerOptionRestoreIdentifierKey: "UniversalBleRestoreIdentifier"]
+  )
   private var availabilityStateUpdateHandlers: [(Result<Int64, Error>) -> Void] = []
   private var discoveredServicesProgressMap: [String: [UniversalBleService]] = [:]
   private var characteristicReadFutures = [CharacteristicReadFuture]()
@@ -52,11 +56,11 @@ private class BleCentralDarwin: NSObject, UniversalBlePlatformChannel, CBCentral
   func enableBluetooth(completion: @escaping (Result<Bool, Error>) -> Void) {
     completion(Result.failure(PigeonError(code: "NotSupported", message: nil, details: nil)))
   }
-
+    
   func disableBluetooth(completion: @escaping (Result<Bool, any Error>) -> Void) {
     completion(Result.failure(PigeonError(code: "NotSupported", message: nil, details: nil)))
   }
-
+    
   func startScan(filter: UniversalScanFilter?) throws {
     // If filter has any other filter other than official one
     let usesCustomFilters = filter?.usesCustomFilters ?? false
@@ -84,13 +88,13 @@ private class BleCentralDarwin: NSObject, UniversalBlePlatformChannel, CBCentral
   }
 
   func connect(deviceId: String) throws {
-    let peripheral = try deviceId.getPeripheral(manager: manager)
+    let peripheral = try deviceId.getPeripheral()
     peripheral.delegate = self
     manager.connect(peripheral)
   }
 
   func disconnect(deviceId: String) throws {
-    let peripheral = try deviceId.getPeripheral(manager: manager)
+    let peripheral = try deviceId.getPeripheral()
     if peripheral.state != CBPeripheralState.disconnected {
       manager.cancelPeripheralConnection(peripheral)
     }
@@ -98,7 +102,7 @@ private class BleCentralDarwin: NSObject, UniversalBlePlatformChannel, CBCentral
   }
 
   func getConnectionState(deviceId: String) throws -> Int64 {
-    let peripheral = try deviceId.getPeripheral(manager: manager)
+    let peripheral = try deviceId.getPeripheral()
     switch peripheral.state {
     case .connecting:
       return BlueConnectionState.connecting.rawValue
@@ -154,7 +158,7 @@ private class BleCentralDarwin: NSObject, UniversalBlePlatformChannel, CBCentral
   }
 
   func discoverServices(deviceId: String, completion: @escaping (Result<[UniversalBleService], Error>) -> Void) {
-    guard let peripheral = deviceId.findPeripheral(manager: manager) else {
+    guard let peripheral = discoveredPeripherals[deviceId] else {
       completion(
         Result.failure(PigeonError(code: "IllegalArgument", message: "Unknown deviceId:\(self)", details: nil))
       )
@@ -192,7 +196,7 @@ private class BleCentralDarwin: NSObject, UniversalBlePlatformChannel, CBCentral
   }
 
   func setNotifiable(deviceId: String, service: String, characteristic: String, bleInputProperty: Int64, completion: @escaping (Result<Void, any Error>) -> Void) {
-    guard let peripheral = deviceId.findPeripheral(manager: manager) else {
+    guard let peripheral = discoveredPeripherals[deviceId] else {
       completion(Result.failure(PigeonError(code: "IllegalArgument", message: "Unknown deviceId:\(self)", details: nil)))
       return
     }
@@ -218,7 +222,7 @@ private class BleCentralDarwin: NSObject, UniversalBlePlatformChannel, CBCentral
   }
 
   func readValue(deviceId: String, service: String, characteristic: String, completion: @escaping (Result<FlutterStandardTypedData, Error>) -> Void) {
-    guard let peripheral = deviceId.findPeripheral(manager: manager) else {
+    guard let peripheral = discoveredPeripherals[deviceId] else {
       completion(Result.failure(PigeonError(code: "IllegalArgument", message: "Unknown deviceId:\(self)", details: nil)))
       return
     }
@@ -235,7 +239,7 @@ private class BleCentralDarwin: NSObject, UniversalBlePlatformChannel, CBCentral
   }
 
   func writeValue(deviceId: String, service: String, characteristic: String, value: FlutterStandardTypedData, bleOutputProperty: Int64, completion: @escaping (Result<Void, Error>) -> Void) {
-    guard let peripheral = deviceId.findPeripheral(manager: manager) else {
+    guard let peripheral = discoveredPeripherals[deviceId] else {
       completion(Result.failure(PigeonError(code: "IllegalArgument", message: "Unknown deviceId:\(self)", details: nil)))
       return
     }
@@ -268,7 +272,7 @@ private class BleCentralDarwin: NSObject, UniversalBlePlatformChannel, CBCentral
   }
 
   func requestMtu(deviceId: String, expectedMtu _: Int64, completion: @escaping (Result<Int64, Error>) -> Void) {
-    guard let peripheral = deviceId.findPeripheral(manager: manager) else {
+    guard let peripheral = discoveredPeripherals[deviceId] else {
       completion(Result.failure(PigeonError(code: "IllegalArgument", message: "Unknown deviceId:\(self)", details: nil)))
       return
     }
@@ -291,16 +295,11 @@ private class BleCentralDarwin: NSObject, UniversalBlePlatformChannel, CBCentral
   }
 
   func getSystemDevices(withServices: [String], completion: @escaping (Result<[UniversalBleScanResult], Error>) -> Void) {
-    var servicesFilter = withServices
-    if servicesFilter.isEmpty {
-      print("No services filter was set for getting system connected devices. Using default services...")
-      
-      // Add several generic services
-      servicesFilter = ["1800", "1801", "180A", "180D", "1810", "181B", "1808", "181D", "1816", "1814", "181A", "1802", "1803", "1804", "1815", "1805", "1807", "1806", "1848", "185E", "180F", "1812", "180E", "1813"]
-    }
-    var filterCBUUID = servicesFilter.map { CBUUID(string: $0) }
+    var filterCBUUID = withServices.map { CBUUID(string: $0) }
+    // We can't keep this filter empty, so adding a default filter
+    if filterCBUUID.isEmpty { filterCBUUID.append(CBUUID(string: "1800")) }
     let bleDevices = manager.retrieveConnectedPeripherals(withServices: filterCBUUID)
-    bleDevices.forEach { $0.saveCache() }
+    bleDevices.forEach { discoveredPeripherals[$0.uuid.uuidString] = $0 }
     completion(Result.success(bleDevices.map {
       UniversalBleScanResult(
         deviceId: $0.uuid.uuidString,
@@ -321,7 +320,7 @@ private class BleCentralDarwin: NSObject, UniversalBlePlatformChannel, CBCentral
 
   public func centralManager(_: CBCentralManager, didDiscover peripheral: CBPeripheral, advertisementData: [String: Any], rssi RSSI: NSNumber) {
     // Store the discovered peripheral using its UUID as the key
-    peripheral.saveCache()
+    discoveredPeripherals[peripheral.uuid.uuidString] = peripheral
 
     // Extract manufacturer data and service UUIDs from the advertisement data
     let manufacturerData = advertisementData[CBAdvertisementDataManufacturerDataKey] as? Data
@@ -348,7 +347,7 @@ private class BleCentralDarwin: NSObject, UniversalBlePlatformChannel, CBCentral
       isPaired: nil,
       rssi: RSSI as? Int64,
       manufacturerDataList: manufacturerDataList,
-      services: services?.map { $0.uuidStr }
+      services: services?.map { $0.uuidStr.validFullUUID }
     )) { _ in }
   }
 
@@ -364,6 +363,15 @@ private class BleCentralDarwin: NSObject, UniversalBlePlatformChannel, CBCentral
   public func centralManager(_: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
     callbackChannel.onConnectionChanged(deviceId: peripheral.uuid.uuidString, connected: false, error: error?.localizedDescription) { _ in }
     cleanUpConnection(deviceId: peripheral.uuid.uuidString)
+  }
+
+  public func centralManager(_ central: CBCentralManager, willRestoreState dict: [String: Any]) {
+    if let peripherals = dict[CBCentralManagerRestoredStatePeripheralsKey] as? [CBPeripheral] {
+      for peripheral in peripherals {
+        peripheral.delegate = self
+        central.connect(peripheral)
+      }
+    }
   }
 
   public func peripheral(_ peripheral: CBPeripheral, didDiscoverServices _: Error?) {
@@ -461,38 +469,19 @@ private class BleCentralDarwin: NSObject, UniversalBlePlatformChannel, CBCentral
   }
 }
 
-extension CBPeripheral {
-    func saveCache(){
-        discoveredPeripherals[self.uuid.uuidString] = self
-    }
-}
-
 extension String {
-  func getPeripheral(manager: CBCentralManager) throws -> CBPeripheral {
-    guard let peripheral = findPeripheral(manager: manager) else {
+  func getPeripheral() throws -> CBPeripheral {
+    guard let peripheral = discoveredPeripherals[self] else {
       throw PigeonError(code: "IllegalArgument", message: "Unknown deviceId:\(self)", details: nil)
     }
     return peripheral
-  }
-
-  func findPeripheral(manager: CBCentralManager) -> CBPeripheral? {
-    if let peripheral = discoveredPeripherals[self] {
-      return peripheral
-    }
-    if let uuid = UUID(uuidString: self) {
-      let peripherals = manager.retrievePeripherals(withIdentifiers: [uuid])
-      if let peripheral = peripherals.first {
-        return peripheral
-      }
-    }
-    return nil
   }
 }
 
 extension [String] {
   func toCBUUID() throws -> [CBUUID] {
     return try compactMap { serviceUUID in
-      guard UUID(uuidString: serviceUUID) != nil else {
+      guard UUID(uuidString: serviceUUID.validFullUUID) != nil else {
         throw PigeonError(code: "IllegalArgument", message: "Invalid service UUID:\(serviceUUID)", details: nil)
       }
       return CBUUID(string: serviceUUID)
